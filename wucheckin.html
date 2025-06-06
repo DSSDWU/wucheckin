@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>เช็คอินกิจกรรม</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .status {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            border-left-color: #28a745;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            border-left-color: #dc3545;
+            color: #721c24;
+        }
+        
+        .status.warning {
+            background: #fff3cd;
+            border-left-color: #ffc107;
+            color: #856404;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .location-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            color: #1565c0;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 เช็คอินกิจกรรม</h1>
+            <p>กรุณากรอกข้อมูลเพื่อเช็คอิน</p>
+        </div>
+        
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>กำลังโหลดระบบ...</p>
+        </div>
+        
+        <div id="app" style="display: none;">
+            <div id="status" class="status">
+                <p id="statusText">กำลังตรวจสอบตำแหน่ง...</p>
+            </div>
+            
+            <div id="locationInfo" class="location-info" style="display: none;">
+                <p>📍 ตำแหน่งปัจจุบัน: <span id="currentLocation"></span></p>
+            </div>
+            
+            <form id="checkinForm" style="display: none;">
+                <div class="form-group">
+                    <label for="studentId">รหัสนักศึกษา (8 หลัก)</label>
+                    <input type="text" id="studentId" maxlength="8" pattern="[0-9]{8}" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="fullName">ชื่อ-สกุล</label>
+                    <input type="text" id="fullName" required>
+                </div>
+                
+                <button type="submit" class="btn" id="submitBtn">
+                    ✅ เช็คอิน
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // ตั้งค่าพิกัดกิจกรรม (ตัวอย่าง - มหาวิทยาลัยเชียงใหม่)
+        const EVENT_LOCATION = {
+            lat: 18.7883,
+            lng: 98.9853,
+            radius: 500 // รัศมี 500 เมตร
+        };
+        
+        // URL ของ Google Apps Script
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxJEfkxzez19RHUGbku1fFZ8SkFjvClJVP8LguxCYLm2xk78zW8Zr6uK4q5-YLnmrkO/exec';
+        
+        let userProfile = null;
+        let currentPosition = null;
+        
+        // เริ่มต้นระบบ
+        window.addEventListener('load', async () => {
+            try {
+                await initializeLiff();
+                await getUserProfile();
+                await checkLocation();
+                await checkDuplicateCheckin();
+                showForm();
+            } catch (error) {
+                showError('เกิดข้อผิดพลาด: ' + error.message);
+            }
+        });
+        
+        // เริ่มต้น LIFF
+        async function initializeLiff() {
+            try {
+                await liff.init({ liffId: '2007533400-9JaRBALJ' });
+                
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+            } catch (error) {
+                throw new Error('ไม่สามารถเชื่อมต่อ LINE ได้');
+            }
+        }
+        
+        // ดึงข้อมูลผู้ใช้
+        async function getUserProfile() {
+            try {
+                userProfile = await liff.getProfile();
+                updateStatus('ยินดีต้อนรับ ' + userProfile.displayName, 'info');
+            } catch (error) {
+                throw new Error('ไม่สามารถดึงข้อมูลผู้ใช้ได้');
+            }
+        }
+        
+        // ตรวจสอบตำแหน่ง
+        async function checkLocation() {
+            return new Promise((resolve, reject) => {
+                updateStatus('กำลังตรวจสอบตำแหน่ง...', 'info');
+                
+                if (!navigator.geolocation) {
+                    reject(new Error('เบราว์เซอร์ไม่รองรับการหาตำแหน่ง'));
+                    return;
+                }
+                
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        currentPosition = {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude
+                        };
+                        
+                        const distance = calculateDistance(
+                            currentPosition.lat, 
+                            currentPosition.lng,
+                            EVENT_LOCATION.lat, 
+                            EVENT_LOCATION.lng
+                        );
+                        
+                        document.getElementById('currentLocation').textContent = 
+                            `${currentPosition.lat.toFixed(6)}, ${currentPosition.lng.toFixed(6)} (ระยะห่าง: ${Math.round(distance)}m)`;
+                        document.getElementById('locationInfo').style.display = 'block';
+                        
+                        if (distance <= EVENT_LOCATION.radius) {
+                            updateStatus('✅ คุณอยู่ในพื้นที่กิจกรรม', 'success');
+                            resolve();
+                        } else {
+                            updateStatus(`❌ คุณอยู่นอกพื้นที่กิจกรรม (ห่างจากจุดกิจกรรม ${Math.round(distance)} เมตร)`, 'error');
+                            reject(new Error('อยู่นอกพื้นที่กิจกรรม'));
+                        }
+                    },
+                    (error) => {
+                        reject(new Error('ไม่สามารถหาตำแหน่งได้ กรุณาเปิด GPS'));
+                    }
+                );
+            });
+        }
+        
+        // คำนวณระยะทาง
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371e3; // รัศมีโลกเป็นเมตร
+            const φ1 = lat1 * Math.PI/180;
+            const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180;
+            const Δλ = (lng2-lng1) * Math.PI/180;
+            
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            
+            return R * c;
+        }
+        
+        // ตรวจสอบการเช็คอินซ้ำ
+        async function checkDuplicateCheckin() {
+            try {
+                const response = await fetch(SCRIPT_URL + '?action=checkDuplicate&uid=' + userProfile.userId);
+                const result = await response.json();
+                
+                if (result.duplicate) {
+                    throw new Error('คุณได้เช็คอินแล้ว เวลา: ' + result.timestamp);
+                }
+            } catch (error) {
+                if (error.message.includes('เช็คอินแล้ว')) {
+                    throw error;
+                }
+                console.warn('ไม่สามารถตรวจสอบการเช็คอินซ้ำได้:', error);
+            }
+        }
+        
+        // แสดงฟอร์ม
+        function showForm() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            document.getElementById('checkinForm').style.display = 'block';
+        }
+        
+        // อัพเดทสถานะ
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            const statusText = document.getElementById('statusText');
+            
+            statusDiv.className = 'status ' + type;
+            statusText.textContent = message;
+        }
+        
+        // แสดงข้อผิดพลาด
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            updateStatus(message, 'error');
+        }
+        
+        // จัดการฟอร์ม
+        document.getElementById('checkinForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const studentId = document.getElementById('studentId').value;
+            const fullName = document.getElementById('fullName').value;
+            
+            // ตรวจสอบรหัสนักศึกษา
+            if (studentId.length !== 8 || !/^\d{8}$/.test(studentId)) {
+                updateStatus('กรุณากรอกรหัสนักศึกษา 8 หลักที่ถูกต้อง', 'error');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ กำลังเช็คอิน...';
+            
+            try {
+                const checkinData = {
+                    action: 'checkin',
+                    uid: userProfile.userId,
+                    displayName: userProfile.displayName,
+                    studentId: studentId,
+                    fullName: fullName,
+                    timestamp: new Date().toISOString(),
+                    location: currentPosition
+                };
+                
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(checkinData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    updateStatus('✅ เช็คอินสำเร็จ!', 'success');
+                    document.getElementById('checkinForm').style.display = 'none';
+                    
+                    // ส่งข้อความแจ้งเตือนใน LINE
+                    if (liff.isApiAvailable('sendMessages')) {
+                        liff.sendMessages([{
+                            type: 'text',
+                            text: `🎉 เช็คอินกิจกรรมสำเร็จ!\n👤 ${fullName}\n🆔 ${studentId}\n⏰ ${new Date().toLocaleString('th-TH')}`
+                        }]);
+                    }
+                } else {
+                    throw new Error(result.message || 'เช็คอินไม่สำเร็จ');
+                }
+            } catch (error) {
+                updateStatus('❌ ' + error.message, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = '✅ เช็คอิน';
+            }
+        });
+        
+        // ตรวจสอบรหัสนักศึกษาขณะพิมพ์
+        document.getElementById('studentId').addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/\D/g, '').substring(0, 8);
+        });
+    </script>
+</body>
+</html>
